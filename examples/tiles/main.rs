@@ -20,7 +20,7 @@ use amethyst::{
         types::DefaultBackend,
         RenderDebugLines, RenderFlat2D, RenderToWindow, RenderingBundle, Texture,
     },
-    tiles::{MortonEncoder, RenderTiles2D, Tile, TileMap},
+    tiles::{MortonEncoder, RenderTiles2D, Tile, TileMap, TileSet},
     utils::application_root_dir,
     window::ScreenDimensions,
     winit,
@@ -331,8 +331,13 @@ fn init_camera(world: &mut World, parent: Entity, transform: Transform, camera: 
 #[derive(Default, Clone)]
 struct ExampleTile;
 impl Tile for ExampleTile {
-    fn sprite(&self, _: Point3<u32>, _: &World) -> Option<usize> {
-        Some(1)
+    fn sprite(&self, p: Point3<u32>, _: &World) -> Option<usize> {
+        Some(((p.x + p.y) % 2) as usize)
+        // if p.y > p.x || p.x == 0 {
+        //     Some(1)
+        // } else {
+        //     Some(0)
+        // }
     }
 }
 
@@ -349,8 +354,17 @@ impl SimpleState for Example {
             "texture/Circle_Spritesheet.ron",
         );
 
-        let map_sprite_sheet_handle =
-            load_sprite_sheet(world, "texture/cp437_20x20.png", "texture/cp437_20x20.ron");
+        let map_sprite_sheet_handle = load_sprite_sheet(
+            world,
+            "texture/Isometric_tiles.png",
+            "texture/Isometric_tiles.ron",
+        );
+
+        // let map_sprite_sheet_handle = load_sprite_sheet(
+        //     world,
+        //     "texture/Hexagonal_tiles.png",
+        //     "texture/Hexagonal_tiles.ron",
+        // );
 
         let (width, height) = {
             let dim = world.read_resource::<ScreenDimensions>();
@@ -374,9 +388,13 @@ impl SimpleState for Example {
             .build();
 
         let map = TileMap::<ExampleTile, MortonEncoder>::new(
-            Vector3::new(48, 48, 1),
-            Vector3::new(20, 20, 1),
+            Vector3::new(30, 30, 1),
+            Vector3::new(56, 29, 1),
+            //Vector3::new(47, 29, 1),
             Some(map_sprite_sheet_handle),
+            //TileSet::Rectangular,
+            TileSet::Isometric,
+            //TileSet::Hexagonal(17),
         );
 
         let _map_entity = world

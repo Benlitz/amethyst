@@ -99,6 +99,16 @@ pub trait MapStorage<T: Tile> {
     fn get_raw_mut_nochange(&mut self, coord: u32) -> Option<&mut T>;
 }
 
+/// Plop
+pub enum TileSet {
+    /// Plop
+    Rectangular,
+    /// Plop
+    Isometric,
+    /// Plop
+    Hexagonal(u32),
+}
+
 /// Concrete implementation of a generic 3D `TileMap` component. Accepts a `Tile` type and `CoordinateEncoder` type,
 /// creating a flat 1D array storage which is spatially partitioned utilizing the provided encoding scheme.
 ///
@@ -143,9 +153,10 @@ impl<T: Tile, E: CoordinateEncoder> TileMap<T, E> {
         dimensions: Vector3<u32>,
         tile_dimensions: Vector3<u32>,
         sprite_sheet: Option<Handle<SpriteSheet>>,
+        tileset: TileSet,
     ) -> Self {
         let origin = Point3::new(0.0, 0.0, 0.0);
-        let transform = create_transform(&dimensions, &tile_dimensions);
+        let transform = create_transform(&dimensions, &tile_dimensions, tileset);
 
         // Round the dimensions to the nearest multiplier for morton rounding
         let size = E::allocation_size(dimensions);
@@ -270,20 +281,41 @@ impl<T: Tile, E: CoordinateEncoder> MapStorage<T> for TileMap<T, E> {
 }
 
 #[allow(clippy::cast_precision_loss)]
-fn create_transform(map_dimensions: &Vector3<u32>, tile_dimensions: &Vector3<u32>) -> Matrix4<f32> {
+fn create_transform(
+    map_dimensions: &Vector3<u32>,
+    tile_dimensions: &Vector3<u32>,
+    tileset: TileSet,
+) -> Matrix4<f32> {
     let tile_dimensions = Vector3::new(
         tile_dimensions.x as f32,
         tile_dimensions.y as f32,
         tile_dimensions.z as f32,
     );
 
-    let half_dimensions = Vector3::new(
-        -1.0 * (map_dimensions.x as f32 / 2.0) + 0.5,
-        map_dimensions.y as f32 / 2.0 - 0.5,
-        0.0,
-    );
-
-    Matrix4::new_translation(&half_dimensions).append_nonuniform_scaling(&tile_dimensions)
+    if let TileSet::Rectangular = tileset {
+        let half_dimensions = Vector3::new(
+            -1.0 * (map_dimensions.x as f32 / 2.0) + 0.5,
+            map_dimensions.y as f32 / 2.0 - 0.5,
+            0.0,
+        );
+        return Matrix4::new_translation(&half_dimensions)
+            .append_nonuniform_scaling(&tile_dimensions);
+    } else {
+        let offset = match tileset {
+            TileSet::Isometric => 0,
+            TileSet::Hexagonal(v) => v,
+            _ => panic!("TileSet not implemented"), // Should never happen
+        };
+        let half_dimensions = Vector3::new(0.0, map_dimensions.y as f32 / 2.0 - 0.5, 0.0);
+        let offset = offset as f32 / tile_dimensions.x * 0.5;
+        let mut iso_matrix = Matrix4::identity();
+        iso_matrix.m11 = 0.5 + offset;
+        iso_matrix.m12 = 0.5 + offset;
+        iso_matrix.m21 = -0.5;
+        iso_matrix.m22 = 0.5;
+        return (Matrix4::new_translation(&half_dimensions) * iso_matrix)
+            .append_nonuniform_scaling(&tile_dimensions);
+    }
 }
 
 #[allow(clippy::cast_precision_loss)]

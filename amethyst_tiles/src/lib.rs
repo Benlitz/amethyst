@@ -19,7 +19,7 @@ pub mod prefab;
 
 pub use error::TileOutOfBoundsError;
 pub use iters::{MortonRegion, Region};
-pub use map::{Map, MapStorage, Tile, TileMap};
+pub use map::{Map, MapStorage, Tile, TileMap, TileSet};
 pub use morton::{MortonEncoder, MortonEncoder2D};
 pub use pass::{
     DrawTiles2D, DrawTiles2DBounds, DrawTiles2DBoundsDefault, DrawTiles2DDesc, RenderTiles2D,
