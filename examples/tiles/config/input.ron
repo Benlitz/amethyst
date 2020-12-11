@@ -22,5 +22,6 @@
         "select": [[Mouse(Left)]],
         "toggle_rotation": [[Key(Y)]],
         "toggle_translation": [[Key(T)]],
+        "swap_map": [[Key(M)]],
     },
 )

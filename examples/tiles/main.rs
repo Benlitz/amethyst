@@ -333,15 +333,17 @@ struct ExampleTile;
 impl Tile for ExampleTile {
     fn sprite(&self, p: Point3<u32>, _: &World) -> Option<usize> {
         Some(((p.x + p.y) % 2) as usize)
-        // if p.y > p.x || p.x == 0 {
-        //     Some(1)
-        // } else {
-        //     Some(0)
-        // }
     }
 }
 
-struct Example;
+#[derive(Default)]
+struct Example {
+    tile_maps: Vec<TileMap<ExampleTile, MortonEncoder>>,
+    current_map: usize,
+    current_entity: Option<Entity>,
+    swap_map_pressed: bool,
+}
+
 impl SimpleState for Example {
     fn on_start(&mut self, data: StateData<'_, GameData<'_, '_>>) {
         let world = data.world;
@@ -354,17 +356,20 @@ impl SimpleState for Example {
             "texture/Circle_Spritesheet.ron",
         );
 
-        let map_sprite_sheet_handle = load_sprite_sheet(
+        let rect_map_sprite_sheet_handle =
+            load_sprite_sheet(world, "texture/cp437_20x20.png", "texture/cp437_20x20.ron");
+
+        let iso_map_sprite_sheet_handle = load_sprite_sheet(
             world,
             "texture/Isometric_tiles.png",
             "texture/Isometric_tiles.ron",
         );
 
-        // let map_sprite_sheet_handle = load_sprite_sheet(
-        //     world,
-        //     "texture/Hexagonal_tiles.png",
-        //     "texture/Hexagonal_tiles.ron",
-        // );
+        let hexa_map_sprite_sheet_handle = load_sprite_sheet(
+            world,
+            "texture/Hexagonal_tiles.png",
+            "texture/Hexagonal_tiles.ron",
+        );
 
         let (width, height) = {
             let dim = world.read_resource::<ScreenDimensions>();
@@ -387,21 +392,27 @@ impl SimpleState for Example {
             .with(DebugLinesComponent::with_capacity(1))
             .build();
 
-        let map = TileMap::<ExampleTile, MortonEncoder>::new(
-            Vector3::new(30, 30, 1),
-            Vector3::new(56, 29, 1),
-            //Vector3::new(47, 29, 1),
-            Some(map_sprite_sheet_handle),
-            //TileSet::Rectangular,
-            TileSet::Isometric,
-            //TileSet::Hexagonal(17),
-        );
-
-        let _map_entity = world
-            .create_entity()
-            .with(map)
-            .with(Transform::default())
-            .build();
+        self.tile_maps = vec![
+            TileMap::<ExampleTile, MortonEncoder>::new(
+                Vector3::new(48, 48, 1),
+                Vector3::new(20, 20, 1),
+                Some(rect_map_sprite_sheet_handle),
+                TileSet::Rectangular,
+            ),
+            TileMap::<ExampleTile, MortonEncoder>::new(
+                Vector3::new(30, 30, 1),
+                Vector3::new(56, 29, 1),
+                Some(iso_map_sprite_sheet_handle),
+                TileSet::Isometric,
+            ),
+            TileMap::<ExampleTile, MortonEncoder>::new(
+                Vector3::new(30, 30, 1),
+                Vector3::new(47, 29, 1),
+                Some(hexa_map_sprite_sheet_handle),
+                TileSet::Hexagonal(17),
+            ),
+        ];
+        self.swap_map(world);
     }
 
     fn handle_event(
@@ -420,8 +431,41 @@ impl SimpleState for Example {
             Trans::None
         }
     }
+
+    fn update(&mut self, data: &mut StateData<'_, GameData<'_, '_>>) -> SimpleTrans {
+        if data
+            .world
+            .try_fetch::<InputHandler<StringBindings>>()
+            .unwrap()
+            .action_is_down("swap_map")
+            .unwrap()
+        {
+            if !self.swap_map_pressed {
+                self.swap_map(data.world);
+            }
+            self.swap_map_pressed = true
+        } else {
+            self.swap_map_pressed = false
+        }
+        Trans::None
+    }
 }
 
+impl Example {
+    fn swap_map(&mut self, world: &mut World) {
+        if let Some(entity) = self.current_entity {
+            world.delete_entity(entity).unwrap();
+            self.current_map = (self.current_map + 1) % self.tile_maps.len();
+        }
+        self.current_entity = Some(
+            world
+                .create_entity()
+                .with(self.tile_maps[self.current_map].clone())
+                .with(Transform::default())
+                .build(),
+        );
+    }
+}
 fn main() -> amethyst::Result<()> {
     amethyst::Logger::from_config(Default::default())
         .level_for("amethyst_tiles", log::LevelFilter::Warn)
@@ -468,7 +512,7 @@ fn main() -> amethyst::Result<()> {
                 .with_plugin(RenderTiles2D::<ExampleTile, MortonEncoder>::default()),
         )?;
 
-    let mut game = Application::build(assets_directory, Example)?.build(game_data)?;
+    let mut game = Application::build(assets_directory, Example::default())?.build(game_data)?;
     game.run();
     Ok(())
 }
