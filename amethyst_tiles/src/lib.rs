@@ -22,7 +22,8 @@ pub use iters::{MortonRegion, Region};
 pub use map::{Map, MapStorage, Tile, TileMap, TileSet};
 pub use morton::{MortonEncoder, MortonEncoder2D};
 pub use pass::{
-    DrawTiles2D, DrawTiles2DBounds, DrawTiles2DBoundsDefault, DrawTiles2DDesc, RenderTiles2D,
+    DrawTiles2D, DrawTiles2DBounds, DrawTiles2DBoundsDefault, DrawTiles2DBoundsOrthoCamera,
+    DrawTiles2DDesc, RenderTiles2D,
 };
 
 use amethyst_core::math::Vector3;

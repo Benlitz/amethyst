@@ -60,6 +60,27 @@ pub trait Map {
         map_transform: Option<&Transform>,
     ) -> Result<Point3<u32>, TileOutOfBoundsError>;
 
+    /// Convert an amethyst world-coordinate space coordinate `Vector3<f32>` to a tile coordinate `Point3<u32>`
+    /// This performs an inverse matrix transformation of the world coordinate, scaling and translating using this
+    /// maps `origin` and `tile_dimensions` respectively. If the tile map entity has a transform component, then
+    /// it also translates the point using the it's transform.
+    /// This function is similar to `to_tile`, but clamps the coordinates to the map boundaries if the specified
+    /// world-coordinate `Vector3<f32>` is out of the bounds instead of returning a
+    // `Result<Point3<u32>, TileOutOfBoundsError>`.
+    fn to_tile_clamped(
+        &self,
+        coord: &Vector3<f32>,
+        map_transform: Option<&Transform>,
+    ) -> Point3<u32> {
+        self.to_tile(coord, map_transform).unwrap_or_else(|e| {
+            Point3::new(
+                (e.point_dimensions.x.max(0) as u32).min(self.dimensions().x - 1),
+                (e.point_dimensions.y.max(0) as u32).min(self.dimensions().y - 1),
+                (e.point_dimensions.z.max(0) as u32).min(self.dimensions().z - 1),
+            )
+        })
+    }
+
     /// Returns the `Matrix4` transform which was created for transforming between world and tile coordinate spaces.
     fn transform(&self) -> &Matrix4<f32>;
 

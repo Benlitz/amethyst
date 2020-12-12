@@ -3,7 +3,8 @@
 
 use amethyst_core::{
     ecs::{
-        DispatcherBuilder, Entities, Join, Read, ReadExpect, ReadStorage, System, SystemData, World,
+        DispatcherBuilder, Entities, Join, Read, ReadExpect, ReadStorage, System, SystemData,
+        World, WorldExt,
     },
     geometry::{Plane, Ray},
     math::{self, clamp, convert, Matrix4, Point2, Point3, Vector2, Vector3, Vector4},
@@ -80,18 +81,77 @@ lazy_static::lazy_static! {
 /// Trait to describe how rendering tiles may be culled for the tilemap to render
 pub trait DrawTiles2DBounds: 'static + std::fmt::Debug + Send + Sync {
     /// Returns the region to render the tiles
-    fn bounds<T: Tile, E: CoordinateEncoder>(map: &TileMap<T, E>, world: &World) -> Region;
+    fn bounds<T: Tile, E: CoordinateEncoder>(
+        map: &TileMap<T, E>,
+        map_transform: Option<&Transform>,
+        world: &World,
+    ) -> Region;
 }
 
 /// Default bounds that returns the entire tilemap
 #[derive(Default, Debug)]
 pub struct DrawTiles2DBoundsDefault;
 impl DrawTiles2DBounds for DrawTiles2DBoundsDefault {
-    fn bounds<T: Tile, E: CoordinateEncoder>(map: &TileMap<T, E>, world: &World) -> Region {
+    fn bounds<T: Tile, E: CoordinateEncoder>(
+        map: &TileMap<T, E>,
+        _: Option<&Transform>,
+        world: &World,
+    ) -> Region {
         Region::new(
             Point3::new(0, 0, 0),
             Point3::from(*map.dimensions() - Vector3::new(1, 1, 1)),
         )
+    }
+}
+
+/// Default bounds that returns the entire tilemap
+#[derive(Default, Debug)]
+pub struct DrawTiles2DBoundsOrthoCamera;
+impl DrawTiles2DBounds for DrawTiles2DBoundsOrthoCamera {
+    fn bounds<T: Tile, E: CoordinateEncoder>(
+        map: &TileMap<T, E>,
+        map_transform: Option<&Transform>,
+        world: &World,
+    ) -> Region {
+        let camera = world.try_fetch::<ActiveCamera>();
+        match camera {
+            Some(cam) => {
+                if let Some(entity) = cam.entity {
+                    let transform_storage = world.read_storage::<Transform>();
+                    let view_matrix = transform_storage.get(entity).unwrap().matrix();
+                    let cam_storage = world.read_storage::<Camera>();
+                    let cam_comp = cam_storage.get(entity).unwrap();
+                    let w = 2.0 / cam_comp.matrix[(0, 0)];
+                    let h = 2.0 / cam_comp.matrix[(1, 1)];
+                    let cam_p1 = view_matrix.transform_point(&Point3::new(-w / 2.0, h / 2.0, 0.0));
+                    let cam_p2 = view_matrix.transform_point(&Point3::new(w / 2.0, h / 2.0, 0.0));
+                    let cam_p3 = view_matrix.transform_point(&Point3::new(-w / 2.0, -h / 2.0, 0.0));
+                    let cam_p4 = view_matrix.transform_point(&Point3::new(w / 2.0, -h / 2.0, 0.0));
+                    let p1 = map.to_tile_clamped(&cam_p1.coords, map_transform);
+                    let p2 = map.to_tile_clamped(&cam_p2.coords, map_transform);
+                    let p3 = map.to_tile_clamped(&cam_p3.coords, map_transform);
+                    let p4 = map.to_tile_clamped(&cam_p4.coords, map_transform);
+                    let min = Point3::new(
+                        p1.x.min(p2.x.min(p3.x.min(p4.x))),
+                        p1.y.min(p2.y.min(p3.y.min(p4.y))),
+                        0,
+                    );
+                    let max = Point3::new(
+                        p1.x.max(p2.x.max(p3.x.max(p4.x))).max(min.x + 1),
+                        p1.y.max(p2.y.max(p3.y.max(p4.y))).max(min.y + 1),
+                        map.dimensions().z - 1,
+                    );
+                    let r = Region::new(min, max);
+                    println!(
+                        "Region: {}, {}, {} - {}, {}, {}",
+                        r.min.x, r.min.y, r.min.z, r.max.x, r.max.y, r.max.z
+                    );
+                    return r;
+                }
+                return DrawTiles2DBoundsDefault::bounds(map, map_transform, world);
+            }
+            None => DrawTiles2DBoundsDefault::bounds(map, map_transform, world),
+        }
     }
 }
 
@@ -244,7 +304,7 @@ impl<B: Backend, T: Tile, E: CoordinateEncoder, Z: DrawTiles2DBounds> RenderGrou
                 .into(),
             });
 
-            compute_region::<T, E, Z>(&tile_map, &world)
+            compute_region::<T, E, Z>(&tile_map, transform, &world)
                 .iter()
                 .filter_map(|coord| {
                     let tile = tile_map.get(&coord).unwrap();
@@ -344,9 +404,10 @@ impl<B: Backend, T: Tile, E: CoordinateEncoder, Z: DrawTiles2DBounds> RenderGrou
 
 fn compute_region<T: Tile, E: CoordinateEncoder, Z: DrawTiles2DBounds>(
     tile_map: &TileMap<T, E>,
+    map_transform: Option<&Transform>,
     world: &World,
 ) -> Region {
-    let mut region = Z::bounds(tile_map, world);
+    let mut region = Z::bounds(tile_map, map_transform, world);
     let max_value = tile_map.dimensions() - Vector3::new(1, 1, 1);
 
     region.min = Point3::new(

@@ -20,7 +20,7 @@ use amethyst::{
         types::DefaultBackend,
         RenderDebugLines, RenderFlat2D, RenderToWindow, RenderingBundle, Texture,
     },
-    tiles::{MortonEncoder, RenderTiles2D, Tile, TileMap, TileSet},
+    tiles::{DrawTiles2DBoundsOrthoCamera, MortonEncoder, RenderTiles2D, Tile, TileMap, TileSet},
     utils::application_root_dir,
     window::ScreenDimensions,
     winit,
@@ -383,7 +383,7 @@ fn init_camera(world: &mut World, parent: Entity, transform: Transform, camera: 
 fn init_tilemap(world: &mut World, spritesheets: &TileMapSpriteSheets, tileset: TileSet) {
     let tilemap = match tileset {
         TileSet::Rectangular => TileMap::<ExampleTile, MortonEncoder>::new(
-            Vector3::new(48, 48, 1),
+            Vector3::new(1000, 1000, 1),
             Vector3::new(20, 20, 1),
             Some(spritesheets.rect_tilemap_sheet_handle.clone()),
             TileSet::Rectangular,
@@ -455,12 +455,13 @@ impl SimpleState for Example {
 
         let _reference = init_reference_sprite(world, &circle_sprite_sheet_handle);
         let player = init_player(world, &circle_sprite_sheet_handle);
-        let _camera = init_camera(
+        let camera = init_camera(
             world,
             player,
             Transform::from(Vector3::new(0.0, 0.0, 1.1)),
             Camera::standard_2d(width, height),
         );
+        world.fetch_mut::<ActiveCamera>().entity = Some(camera);
         let _reference_screen = init_screen_reference_sprite(world, &circle_sprite_sheet_handle);
 
         // create a test debug lines entity
@@ -492,6 +493,7 @@ impl SimpleState for Example {
 }
 
 fn main() -> amethyst::Result<()> {
+    println!("START");
     amethyst::Logger::from_config(Default::default())
         .level_for("amethyst_tiles", log::LevelFilter::Warn)
         .start();
@@ -501,11 +503,14 @@ fn main() -> amethyst::Result<()> {
     let display_config_path = app_root.join("examples/tiles/config/display.ron");
 
     let game_data = GameDataBuilder::default()
-        .with_bundle(TransformBundle::new())?
+        .with_bundle(TransformBundle::new())
+        .unwrap()
         .with_bundle(
             InputBundle::<StringBindings>::new()
-                .with_bindings_from_file("examples/tiles/config/input.ron")?,
-        )?
+                .with_bindings_from_file("examples/tiles/config/input.ron")
+                .unwrap(),
+        )
+        .unwrap()
         .with(
             MapSwitchSystem::default(),
             "MapSwitchSystem",
@@ -539,8 +544,13 @@ fn main() -> amethyst::Result<()> {
                 )
                 .with_plugin(RenderDebugLines::default())
                 .with_plugin(RenderFlat2D::default())
-                .with_plugin(RenderTiles2D::<ExampleTile, MortonEncoder>::default()),
-        )?;
+                .with_plugin(RenderTiles2D::<
+                    ExampleTile,
+                    MortonEncoder,
+                    DrawTiles2DBoundsOrthoCamera,
+                >::default()),
+        )
+        .unwrap();
 
     let mut game = Application::build(assets_directory, Example)?.build(game_data)?;
     game.run();
