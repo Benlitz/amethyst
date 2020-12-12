@@ -99,13 +99,24 @@ pub trait MapStorage<T: Tile> {
     fn get_raw_mut_nochange(&mut self, coord: u32) -> Option<&mut T>;
 }
 
-/// Plop
+/// Type of tiling that can be used with a `TileMap`. This affects how adjacent tiles are positioned relative to
+/// each others.
+#[derive(Clone)]
 pub enum TileSet {
-    /// Plop
+    /// Tiles are squares or rectangles and are placed next to each others horizontally and vertically. The global
+    /// shape of the tile map is a rectangle and the first tile is at top-left corner of the map.
     Rectangular,
-    /// Plop
+    /// Tiles are diamond-shaped and are placed next to each others diagonally. The global shape of the tile map is
+    /// also a diamond, and the first tile is at the top of the diamond, x coordinates increasing downward-right and
+    /// y coordinates increasing downward-left.
     Isometric,
-    /// Plop
+    /// Tiles are hexagones with two of their sides being along the top and the bottom sides of the tile sprite.
+    /// They are placed next to each other in the same way as `Isometric`, except they are offset by the length of
+    /// the top and bottom sides to create a hexagonal tiling. The global shape of the tile map is also a diamond,
+    // and the first tile is at the top of the diamond, x coordinates increased downward-right and y coordinates
+    /// increasing downward-left.
+    /// The `u32` value corresponds to this horizontal offset, or the length of the top and bottom sides of the
+    /// hexagon.
     Hexagonal(u32),
 }
 
@@ -302,17 +313,16 @@ fn create_transform(
             .append_nonuniform_scaling(&tile_dimensions);
     } else {
         let offset = match tileset {
-            TileSet::Isometric => 0,
-            TileSet::Hexagonal(v) => v,
+            TileSet::Isometric => 0.0,
+            TileSet::Hexagonal(v) => v as f32 / tile_dimensions.x * 0.5,
             _ => panic!("TileSet not implemented"), // Should never happen
         };
         let half_dimensions = Vector3::new(0.0, map_dimensions.y as f32 / 2.0 - 0.5, 0.0);
-        let offset = offset as f32 / tile_dimensions.x * 0.5;
         let mut iso_matrix = Matrix4::identity();
-        iso_matrix.m11 = 0.5 + offset;
-        iso_matrix.m12 = 0.5 + offset;
-        iso_matrix.m21 = -0.5;
-        iso_matrix.m22 = 0.5;
+        iso_matrix[(0, 0)] = 0.5 + offset;
+        iso_matrix[(0, 1)] = 0.5 + offset;
+        iso_matrix[(1, 0)] = -0.5;
+        iso_matrix[(1, 1)] = 0.5;
         return (Matrix4::new_translation(&half_dimensions) * iso_matrix)
             .append_nonuniform_scaling(&tile_dimensions);
     }
