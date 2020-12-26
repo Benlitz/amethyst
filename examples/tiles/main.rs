@@ -20,7 +20,7 @@ use amethyst::{
         types::DefaultBackend,
         RenderDebugLines, RenderFlat2D, RenderToWindow, RenderingBundle, Texture,
     },
-    tiles::{MortonEncoder, RenderTiles2D, Tile, TileMap, Tiling},
+    tiles::{DrawTiles2DBoundsCameraCulling, MortonEncoder, RenderTiles2D, Tile, TileMap, Tiling},
     utils::application_root_dir,
     window::ScreenDimensions,
     winit,
@@ -207,12 +207,12 @@ impl<'s> System<'s> for CameraSwitchSystem {
             let (new_camera, new_position) = if self.perspective {
                 (
                     Camera::standard_3d(dimensions.width(), dimensions.height()),
-                    Vector3::new(0.0, 0.0, 500.1),
+                    Vector3::new(0.0, 0.0, 1000.1),
                 )
             } else {
                 (
                     Camera::standard_2d(dimensions.width(), dimensions.height()),
-                    Vector3::new(0.0, 0.0, 1.1),
+                    Vector3::new(0.0, 0.0, 1000.1),
                 )
             };
 
@@ -258,7 +258,11 @@ impl<'s> System<'s> for CameraMovementSystem {
 
                 let z_scale = 0.01 * z_move_scale;
                 let scale = camera_transform.scale();
-                let scale = Vector3::new(scale.x + z_scale, scale.y + z_scale, scale.z + z_scale);
+                let scale = Vector3::new(
+                    (scale.x + z_scale).max(0.001),
+                    (scale.y + z_scale).max(0.001),
+                    (scale.z + z_scale).max(0.001),
+                );
                 camera_transform.set_scale(scale);
             }
         }
@@ -331,7 +335,7 @@ fn load_sprite_sheet(world: &mut World, png_path: &str, ron_path: &str) -> Sprit
 // Initialize a sprite as a reference point at a fixed location
 fn init_reference_sprite(world: &mut World, sprite_sheet: &SpriteSheetHandle) -> Entity {
     let mut transform = Transform::default();
-    transform.set_translation_xyz(0.0, 0.0, 0.1);
+    transform.set_translation_xyz(0.0, 0.0, 200.1);
     let sprite = SpriteRender::new(sprite_sheet.clone(), 0);
     world
         .create_entity()
@@ -383,7 +387,7 @@ fn init_camera(world: &mut World, parent: Entity, transform: Transform, camera: 
 fn init_tilemap(world: &mut World, spritesheets: &TileMapSpriteSheets, tiling: Tiling) {
     let tilemap = match tiling {
         Tiling::Rectangular => TileMap::<ExampleTile, MortonEncoder>::new(
-            Vector3::new(48, 48, 1),
+            Vector3::new(400, 400, 1),
             Vector3::new(20, 20, 1),
             Some(spritesheets.rect_tilemap_sheet_handle.clone()),
             Tiling::Rectangular,
@@ -455,12 +459,13 @@ impl SimpleState for Example {
 
         let _reference = init_reference_sprite(world, &circle_sprite_sheet_handle);
         let player = init_player(world, &circle_sprite_sheet_handle);
-        let _camera = init_camera(
+        let camera = init_camera(
             world,
             player,
             Transform::from(Vector3::new(0.0, 0.0, 1.1)),
             Camera::standard_2d(width, height),
         );
+        world.fetch_mut::<ActiveCamera>().entity = Some(camera);
         let _reference_screen = init_screen_reference_sprite(world, &circle_sprite_sheet_handle);
 
         // create a test debug lines entity
@@ -539,7 +544,11 @@ fn main() -> amethyst::Result<()> {
                 )
                 .with_plugin(RenderDebugLines::default())
                 .with_plugin(RenderFlat2D::default())
-                .with_plugin(RenderTiles2D::<ExampleTile, MortonEncoder>::default()),
+                .with_plugin(RenderTiles2D::<
+                    ExampleTile,
+                    MortonEncoder,
+                    DrawTiles2DBoundsCameraCulling,
+                >::default()),
         )?;
 
     let mut game = Application::build(assets_directory, Example)?.build(game_data)?;
