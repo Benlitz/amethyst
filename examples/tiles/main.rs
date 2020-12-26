@@ -20,7 +20,7 @@ use amethyst::{
         types::DefaultBackend,
         RenderDebugLines, RenderFlat2D, RenderToWindow, RenderingBundle, Texture,
     },
-    tiles::{MortonEncoder, RenderTiles2D, Tile, TileMap},
+    tiles::{MortonEncoder, RenderTiles2D, Tile, TileMap, Tiling},
     utils::application_root_dir,
     window::ScreenDimensions,
     winit,
@@ -106,6 +106,58 @@ impl<'s> System<'s> for DrawSelectionSystem {
     }
 }
 
+#[derive(Clone)]
+struct TileMapSpriteSheets {
+    rect_tilemap_sheet_handle: SpriteSheetHandle,
+    iso_tilemap_sheet_handle: SpriteSheetHandle,
+    hexa_tilemap_sheet_handle: SpriteSheetHandle,
+}
+
+struct MapSwitchSystem {
+    pressed: bool,
+    current_tiling: Tiling,
+}
+
+impl Default for MapSwitchSystem {
+    fn default() -> Self {
+        Self {
+            pressed: false,
+            current_tiling: Tiling::Rectangular,
+        }
+    }
+}
+impl<'s> System<'s> for MapSwitchSystem {
+    type SystemData = (
+        Entities<'s>,
+        Read<'s, LazyUpdate>,
+        ReadExpect<'s, TileMapSpriteSheets>,
+        ReadStorage<'s, TileMap<ExampleTile, MortonEncoder>>,
+        Read<'s, InputHandler<StringBindings>>,
+    );
+
+    fn run(&mut self, (entities, lazy, tilemap_sprite_sheets, maps, input): Self::SystemData) {
+        if input.action_is_down("map_switch").unwrap() {
+            self.pressed = true;
+        }
+        if self.pressed && !input.action_is_down("map_switch").unwrap() {
+            self.pressed = false;
+            // Lazily delete the old tile map
+            let mut map_join = (&entities, &maps).join();
+            let (old_map_entity, _) = map_join.next().unwrap();
+            let tilemap_sprite_sheets = tilemap_sprite_sheets.clone();
+            let next_tiling = match self.current_tiling {
+                Tiling::Rectangular => Tiling::Isometric,
+                Tiling::Isometric => Tiling::Hexagonal(0),
+                Tiling::Hexagonal(_) => Tiling::Rectangular,
+            };
+            self.current_tiling = next_tiling.clone();
+            lazy.exec_mut(move |w| {
+                w.delete_entity(old_map_entity).unwrap();
+                init_tilemap(w, &tilemap_sprite_sheets, next_tiling);
+            });
+        }
+    }
+}
 pub struct CameraSwitchSystem {
     pressed: bool,
     perspective: bool,
@@ -328,14 +380,43 @@ fn init_camera(world: &mut World, parent: Entity, transform: Transform, camera: 
         .build()
 }
 
+fn init_tilemap(world: &mut World, spritesheets: &TileMapSpriteSheets, tiling: Tiling) {
+    let tilemap = match tiling {
+        Tiling::Rectangular => TileMap::<ExampleTile, MortonEncoder>::new(
+            Vector3::new(48, 48, 1),
+            Vector3::new(20, 20, 1),
+            Some(spritesheets.rect_tilemap_sheet_handle.clone()),
+            Tiling::Rectangular,
+        ),
+        Tiling::Isometric => TileMap::<ExampleTile, MortonEncoder>::new(
+            Vector3::new(30, 30, 1),
+            Vector3::new(56, 29, 1),
+            Some(spritesheets.iso_tilemap_sheet_handle.clone()),
+            Tiling::Isometric,
+        ),
+        Tiling::Hexagonal(_) => TileMap::<ExampleTile, MortonEncoder>::new(
+            Vector3::new(30, 30, 1),
+            Vector3::new(47, 29, 1),
+            Some(spritesheets.hexa_tilemap_sheet_handle.clone()),
+            Tiling::Hexagonal(17),
+        ),
+    };
+    world
+        .create_entity()
+        .with(tilemap)
+        .with(Transform::default())
+        .build();
+}
+
 #[derive(Default, Clone)]
 struct ExampleTile;
 impl Tile for ExampleTile {
-    fn sprite(&self, _: Point3<u32>, _: &World) -> Option<usize> {
-        Some(1)
+    fn sprite(&self, p: Point3<u32>, _: &World) -> Option<usize> {
+        Some(((p.x + p.y) % 2) as usize)
     }
 }
 
+#[derive(Default)]
 struct Example;
 impl SimpleState for Example {
     fn on_start(&mut self, data: StateData<'_, GameData<'_, '_>>) {
@@ -349,8 +430,23 @@ impl SimpleState for Example {
             "texture/Circle_Spritesheet.ron",
         );
 
-        let map_sprite_sheet_handle =
-            load_sprite_sheet(world, "texture/cp437_20x20.png", "texture/cp437_20x20.ron");
+        let tilemap_sprite_sheets = TileMapSpriteSheets {
+            rect_tilemap_sheet_handle: load_sprite_sheet(
+                world,
+                "texture/cp437_20x20.png",
+                "texture/cp437_20x20.ron",
+            ),
+            iso_tilemap_sheet_handle: load_sprite_sheet(
+                world,
+                "texture/Isometric_tiles.png",
+                "texture/Isometric_tiles.ron",
+            ),
+            hexa_tilemap_sheet_handle: load_sprite_sheet(
+                world,
+                "texture/Hexagonal_tiles.png",
+                "texture/Hexagonal_tiles.ron",
+            ),
+        };
 
         let (width, height) = {
             let dim = world.read_resource::<ScreenDimensions>();
@@ -373,17 +469,8 @@ impl SimpleState for Example {
             .with(DebugLinesComponent::with_capacity(1))
             .build();
 
-        let map = TileMap::<ExampleTile, MortonEncoder>::new(
-            Vector3::new(48, 48, 1),
-            Vector3::new(20, 20, 1),
-            Some(map_sprite_sheet_handle),
-        );
-
-        let _map_entity = world
-            .create_entity()
-            .with(map)
-            .with(Transform::default())
-            .build();
+        init_tilemap(world, &tilemap_sprite_sheets, Tiling::Rectangular);
+        world.insert(tilemap_sprite_sheets);
     }
 
     fn handle_event(
@@ -419,6 +506,11 @@ fn main() -> amethyst::Result<()> {
             InputBundle::<StringBindings>::new()
                 .with_bindings_from_file("examples/tiles/config/input.ron")?,
         )?
+        .with(
+            MapSwitchSystem::default(),
+            "MapSwitchSystem",
+            &["input_system"],
+        )
         .with(
             MapMovementSystem::default(),
             "MapMovementSystem",

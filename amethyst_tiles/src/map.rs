@@ -99,6 +99,27 @@ pub trait MapStorage<T: Tile> {
     fn get_raw_mut_nochange(&mut self, coord: u32) -> Option<&mut T>;
 }
 
+/// Type of tiling that can be used with a `TileMap`. This affects how adjacent tiles are positioned relative to
+/// each others.
+#[derive(Clone)]
+pub enum Tiling {
+    /// Tiles are squares or rectangles and are placed next to each others horizontally and vertically. The global
+    /// shape of the tile map is a rectangle and the first tile is at top-left corner of the map.
+    Rectangular,
+    /// Tiles are diamond-shaped and are placed next to each others diagonally. The global shape of the tile map is
+    /// also a diamond, and the first tile is at the top of the diamond, x coordinates increasing downward-right and
+    /// y coordinates increasing downward-left.
+    Isometric,
+    /// Tiles are hexagones with two of their sides being along the top and the bottom sides of the tile sprite.
+    /// They are placed next to each other in the same way as `Isometric`, except they are offset by the length of
+    /// the top and bottom sides to create a hexagonal tiling. The global shape of the tile map is also a diamond,
+    // and the first tile is at the top of the diamond, x coordinates increased downward-right and y coordinates
+    /// increasing downward-left.
+    /// The `u32` value corresponds to this horizontal offset, or the length of the top and bottom sides of the
+    /// hexagon.
+    Hexagonal(u32),
+}
+
 /// Concrete implementation of a generic 3D `TileMap` component. Accepts a `Tile` type and `CoordinateEncoder` type,
 /// creating a flat 1D array storage which is spatially partitioned utilizing the provided encoding scheme.
 ///
@@ -143,9 +164,10 @@ impl<T: Tile, E: CoordinateEncoder> TileMap<T, E> {
         dimensions: Vector3<u32>,
         tile_dimensions: Vector3<u32>,
         sprite_sheet: Option<Handle<SpriteSheet>>,
+        tiling: Tiling,
     ) -> Self {
         let origin = Point3::new(0.0, 0.0, 0.0);
-        let transform = create_transform(&dimensions, &tile_dimensions);
+        let transform = create_transform(&dimensions, &tile_dimensions, tiling);
 
         // Round the dimensions to the nearest multiplier for morton rounding
         let size = E::allocation_size(dimensions);
@@ -270,20 +292,40 @@ impl<T: Tile, E: CoordinateEncoder> MapStorage<T> for TileMap<T, E> {
 }
 
 #[allow(clippy::cast_precision_loss)]
-fn create_transform(map_dimensions: &Vector3<u32>, tile_dimensions: &Vector3<u32>) -> Matrix4<f32> {
+fn create_transform(
+    map_dimensions: &Vector3<u32>,
+    tile_dimensions: &Vector3<u32>,
+    tiling: Tiling,
+) -> Matrix4<f32> {
     let tile_dimensions = Vector3::new(
         tile_dimensions.x as f32,
         tile_dimensions.y as f32,
         tile_dimensions.z as f32,
     );
 
-    let half_dimensions = Vector3::new(
-        -1.0 * (map_dimensions.x as f32 / 2.0),
-        map_dimensions.y as f32 / 2.0,
-        0.0,
-    );
-
-    Matrix4::new_translation(&half_dimensions).append_nonuniform_scaling(&tile_dimensions)
+    if let Tiling::Rectangular = tiling {
+        let half_dimensions = Vector3::new(
+            -1.0 * (map_dimensions.x as f32 / 2.0) + 0.5,
+            map_dimensions.y as f32 / 2.0 - 0.5,
+            0.0,
+        );
+        return Matrix4::new_translation(&half_dimensions)
+            .append_nonuniform_scaling(&tile_dimensions);
+    } else {
+        let offset = match tiling {
+            Tiling::Isometric => 0.0,
+            Tiling::Hexagonal(v) => v as f32 / tile_dimensions.x * 0.5,
+            _ => panic!("Tiling not implemented"), // Should never happen
+        };
+        let half_dimensions = Vector3::new(0.0, map_dimensions.y as f32 / 2.0 - 0.5, 0.0);
+        let mut iso_matrix = Matrix4::identity();
+        iso_matrix[(0, 0)] = 0.5 + offset;
+        iso_matrix[(0, 1)] = 0.5 + offset;
+        iso_matrix[(1, 0)] = -0.5;
+        iso_matrix[(1, 1)] = 0.5;
+        return (Matrix4::new_translation(&half_dimensions) * iso_matrix)
+            .append_nonuniform_scaling(&tile_dimensions);
+    }
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -457,23 +499,23 @@ mod tests {
         test_coord(
             &transform,
             Point3::new(0, 0, 0),
-            Point3::new(-320.0, 320.0, 0.0),
+            Point3::new(-315.0, 315.0, 0.0),
         );
         test_coord(
             &transform,
             Point3::new(1, 0, 0),
-            Point3::new(-310.0, 320.0, 0.0),
+            Point3::new(-305.0, 315.0, 0.0),
         );
         test_coord(
             &transform,
             Point3::new(0, 1, 0),
-            Point3::new(-320.0, 310.0, 0.0),
+            Point3::new(-315.0, 305.0, 0.0),
         );
 
         test_coord(
             &transform,
             Point3::new(0, 1, 20),
-            Point3::new(-320.0, 310.0, 20.0),
+            Point3::new(-315.0, 305.0, 20.0),
         );
     }
 
@@ -516,27 +558,32 @@ mod tests {
         test_coord_with_map_transform(
             &transform,
             Point3::new(1, 1, 0),
-            Point3::new(-320.0, 320.0, 0.0),
+            Point3::new(-315.0, 315.0, 0.0),
             &map_transform,
         );
         test_coord_with_map_transform(
             &transform,
             Point3::new(2, 1, 0),
-            Point3::new(-310.0, 320.0, 0.0),
+            Point3::new(-305.0, 315.0, 0.0),
             &map_transform,
         );
         test_coord_with_map_transform(
             &transform,
             Point3::new(1, 2, 0),
-            Point3::new(-320.0, 310.0, 0.0),
+            Point3::new(-315.0, 305.0, 0.0),
             &map_transform,
         );
-
         test_coord_with_map_transform(
             &transform,
             Point3::new(1, 2, 20),
-            Point3::new(-320.0, 310.0, 20.0),
+            Point3::new(-315.0, 305.0, 20.0),
             &map_transform,
         );
+    }
+
+    #[test]
+    pub fn tilemap_transform_positioning() {
+        let transform = create_transform(&Vector3::new(1, 2, 3), &Vector3::new(10, 10, 1));
+        test_coord(&transform, Point3::new(0, 0, 0), Point3::new(0.0, 5.0, 0.0));
     }
 }
